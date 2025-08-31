@@ -38,19 +38,7 @@ export const loginUser = async (username: string, password: string): Promise<Log
   return response.json();
 };
 
-export const registerUser = async (username: string, email: string, password: string): Promise<User> => {
-  const response = await fetch(`${API_BASE_URL}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email, password })
-  });
-  
-  if (!response.ok) {
-    await handleApiError(response);
-  }
-  
-  return response.json();
-};
+// Registration endpoint not available - admin creates users via /users endpoint
 
 export const getTasks = async (): Promise<Task[]> => {
   const response = await fetch(`${API_BASE_URL}/tasks`, {
@@ -103,9 +91,12 @@ export const deleteTask = async (id: string): Promise<void> => {
   }
 };
 
+// Note: Admin-specific endpoints would be implemented here when backend supports them
+// For now, using regular task endpoints with admin permissions
+
 // User Management API calls
 export const getCurrentUser = async (): Promise<User> => {
-  const response = await fetch(`${API_BASE_URL}/users/me`, {
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
     headers: getAuthHeaders()
   });
   
@@ -117,7 +108,7 @@ export const getCurrentUser = async (): Promise<User> => {
 };
 
 export const updateCurrentUser = async (userData: UserUpdate): Promise<User> => {
-  const response = await fetch(`${API_BASE_URL}/users/me`, {
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
     method: 'PUT',
     headers: getAuthHeaders(),
     body: JSON.stringify(userData)
@@ -146,6 +137,20 @@ export const getAllUsers = async (): Promise<User[]> => {
 export const createUser = async (userData: UserCreate): Promise<User> => {
   const response = await fetch(`${API_BASE_URL}/users`, {
     method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(userData)
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
+};
+
+export const updateUser = async (userId: string, userData: Partial<UserUpdate>): Promise<User> => {
+  const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+    method: 'PUT',
     headers: getAuthHeaders(),
     body: JSON.stringify(userData)
   });

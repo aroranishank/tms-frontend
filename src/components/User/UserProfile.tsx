@@ -1,8 +1,7 @@
-import { useState, useCallback, memo, FormEvent, ChangeEvent, useEffect } from 'react';
-import { User, Settings, X } from 'lucide-react';
-import { useAuth } from '../../hooks/useAuth';
-// import { getCurrentUser } from '../../services/apiService';
-import type { UserUpdate, User as UserType } from '../../types';
+import { useState, useCallback, memo, useEffect, FormEvent, ChangeEvent } from 'react';
+import { User, Settings, X, Save } from 'lucide-react';
+import { getCurrentUser, updateCurrentUser } from '../../services/apiService';
+import type { User as UserType, UserUpdate } from '../../types';
 
 interface UserProfileProps {
   isOpen: boolean;
@@ -10,7 +9,6 @@ interface UserProfileProps {
 }
 
 const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
-  const { user: authUser } = useAuth();
   const [user, setUser] = useState<UserType | null>(null);
   const [formData, setFormData] = useState<UserUpdate>({
     username: '',
@@ -22,37 +20,33 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  useEffect(() => {
-    if (isOpen && authUser) {
-      // Use the user data from auth context since backend doesn't have profile endpoints yet
-      setUser(authUser);
+  const loadUserProfile = useCallback(async () => {
+    if (!isOpen) return;
+    
+    setIsLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const userData = await getCurrentUser();
+      setUser(userData);
       setFormData({
-        username: authUser.username,
-        email: authUser.email || '',
+        username: userData.username,
+        email: userData.email,
         password: ''
       });
+    } catch (error) {
+      console.error('Failed to load user profile:', error);
+      setError('Failed to load profile data');
+    } finally {
       setIsLoading(false);
     }
-  }, [isOpen, authUser]);
+  }, [isOpen]);
 
-  // const loadUserProfile = async () => {
-  //   // Currently not used - backend endpoints don't exist yet
-  //   setIsLoading(true);
-  //   try {
-  //     const userData = await getCurrentUser();
-  //     setUser(userData);
-  //     setFormData({
-  //       username: userData.username,
-  //       email: userData.email || '',
-  //       password: ''
-  //     });
-  //   } catch (error) {
-  //     console.error('Failed to load user profile:', error);
-  //     setError('Failed to load profile data');
-  //   } finally {
-  //     setIsLoading(false);
-  //   }
-  // };
+  useEffect(() => {
+    if (isOpen) {
+      loadUserProfile();
+    }
+  }, [isOpen, loadUserProfile]);
 
   const handleInputChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -67,18 +61,13 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
     setError('');
     setSuccess('');
 
-    // Show message that backend doesn't support this yet
-    setError('Profile updates are not yet supported by the backend. Please contact your administrator.');
-    setIsSubmitting(false);
-    
-    // TODO: Implement when backend has user profile update endpoints
-    /*
     try {
       const updateData: UserUpdate = {
         username: formData.username,
         email: formData.email
       };
       
+      // Only include password if it's been entered
       if (formData.password && formData.password.trim() !== '') {
         updateData.password = formData.password;
       }
@@ -87,6 +76,7 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
       setUser(updatedUser);
       setSuccess('Profile updated successfully!');
       
+      // Clear password field after successful update
       setFormData(prev => ({ ...prev, password: '' }));
     } catch (error) {
       console.error('Failed to update profile:', error);
@@ -94,8 +84,8 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
     } finally {
       setIsSubmitting(false);
     }
-    */
   }, [formData, isSubmitting]);
+
 
   const handleClose = useCallback(() => {
     setError('');
@@ -111,8 +101,7 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
         <div className="relative p-8">
           <button
             onClick={handleClose}
-            disabled={isSubmitting}
-            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all duration-200 disabled:opacity-50"
+            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all duration-200"
           >
             <X className="w-5 h-5" />
           </button>
@@ -122,13 +111,10 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
               <User className="w-8 h-8 text-white" />
             </div>
             <h2 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent mb-2">
-              User Profile
+              Edit Profile
             </h2>
             <p className="text-gray-600">
-              View your account information
-            </p>
-            <p className="text-sm text-amber-600 bg-amber-50 px-3 py-2 rounded-lg mt-2">
-              ⚠️ Profile updates require additional backend endpoints
+              Update your account information
             </p>
             {user?.is_admin && (
               <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 mt-2">
@@ -143,7 +129,7 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-4"></div>
               <p className="text-gray-600">Loading profile...</p>
             </div>
-          ) : (
+          ) : user ? (
             <form onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
@@ -154,11 +140,10 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
                   name="username"
                   value={formData.username}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white"
                   placeholder="Enter your username"
                   required
-                  disabled={true}
-                  readOnly
+                  disabled={isSubmitting}
                 />
               </div>
 
@@ -171,11 +156,34 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                  placeholder="Email not available"
-                  disabled={true}
-                  readOnly
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white"
+                  placeholder="Enter your email"
+                  required
+                  disabled={isSubmitting}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Account Type
+                </label>
+                <div className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200">
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                    user.is_admin 
+                      ? 'bg-purple-100 text-purple-800' 
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {user.is_admin ? (
+                      <>
+                        <Settings className="w-3 h-3 mr-1" />
+                        Administrator
+                      </>
+                    ) : (
+                      'User'
+                    )}
+                  </span>
+                  <p className="text-xs text-gray-500 mt-1">Cannot be changed</p>
+                </div>
               </div>
 
               <div>
@@ -187,11 +195,11 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
                   name="password"
                   value={formData.password}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-gray-50"
-                  placeholder="Password updates not available"
-                  disabled={true}
-                  readOnly
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white"
+                  placeholder="Leave blank to keep current password"
+                  disabled={isSubmitting}
                 />
+                <p className="text-xs text-gray-500 mt-1">Only fill this if you want to change your password</p>
               </div>
 
               {error && (
@@ -216,14 +224,35 @@ const UserProfile = memo(({ isOpen, onClose }: UserProfileProps) => {
                   Cancel
                 </button>
                 <button
-                  type="button"
-                  onClick={handleClose}
-                  className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 font-semibold shadow-lg hover:shadow-xl flex items-center justify-center"
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 font-semibold shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center justify-center"
                 >
-                  <span>Close</span>
+                  {isSubmitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Changes
+                    </>
+                  )}
                 </button>
               </div>
             </form>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-gray-600">No profile data available</p>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="mt-4 px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
           )}
         </div>
       </div>

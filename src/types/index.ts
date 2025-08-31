@@ -7,6 +7,7 @@ export interface Task {
   due_date?: string;
   created_at?: string;
   updated_at?: string;
+  user_id?: string;
 }
 
 export interface User {
@@ -29,6 +30,7 @@ export interface UserUpdate {
   username?: string;
   email?: string;
   password?: string;
+  is_admin?: boolean;
 }
 
 export interface AuthContextType {

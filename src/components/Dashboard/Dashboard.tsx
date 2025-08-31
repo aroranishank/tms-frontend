@@ -7,6 +7,7 @@ import TaskModal from '../Tasks/TaskModal';
 import LoadingSpinner from '../common/LoadingSpinner';
 import UserProfile from '../User/UserProfile';
 import UserManagement from '../User/UserManagement';
+import AdminTaskManagement from '../Admin/AdminTaskManagement';
 import type { Task, TaskFormData, TaskStats } from '../../types';
 import { 
   CheckSquare, 
@@ -18,7 +19,8 @@ import {
   CheckCircle,
   User,
   Users,
-  ChevronDown
+  ChevronDown,
+  ClipboardList
 } from 'lucide-react';
 
 const Dashboard = memo(() => {
@@ -26,31 +28,43 @@ const Dashboard = memo(() => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [currentView, setCurrentView] = useState<'dashboard' | 'user-management' | 'admin-tasks'>('dashboard');
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | Task['status']>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | Task['priority']>('all');
   const [sortBy] = useState<'created' | 'due_date' | 'priority' | 'title'>('created');
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string>('');
   const { user, logout } = useAuth();
   
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
   const loadTasks = useCallback(async () => {
+    console.log('Loading tasks...');
+    setIsLoading(true);
+    setError('');
     try {
       const tasksData = await getTasks();
+      console.log('Tasks loaded successfully:', tasksData);
       setTasks(tasksData);
     } catch (error) {
       console.error('Failed to load tasks:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(`Failed to load tasks: ${errorMessage}`);
+      // Set empty array on error so UI shows "no tasks" instead of infinite loading
+      setTasks([]);
     } finally {
+      console.log('Setting loading to false');
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadTasks();
-  }, [loadTasks]);
+    if (user) {
+      loadTasks();
+    }
+  }, [loadTasks, user]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -199,8 +213,165 @@ const Dashboard = memo(() => {
     return stats;
   }, [tasks]);
 
+  if (!user) {
+    return <LoadingSpinner message="Loading user..." />;
+  }
+
   if (isLoading) {
     return <LoadingSpinner message="Loading tasks..." />;
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto p-6">
+          <div className="bg-red-100 text-red-800 p-4 rounded-lg mb-4">
+            <h3 className="font-semibold">Error Loading Tasks</h3>
+            <p className="text-sm mt-1">{error}</p>
+          </div>
+          <button
+            onClick={() => {
+              setError('');
+              loadTasks();
+            }}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            Retry
+          </button>
+          <div className="mt-4">
+            <button
+              onClick={logout}
+              className="text-sm text-gray-600 hover:text-gray-800"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentView === 'user-management') {
+    return <UserManagement onBack={() => setCurrentView('dashboard')} />;
+  }
+
+  if (currentView === 'admin-tasks') {
+    return <AdminTaskManagement onBack={() => setCurrentView('dashboard')} />;
+  }
+
+  // Admin users get a different dashboard focused on management
+  if (user?.is_admin) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+        <header className="bg-white shadow-sm border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-3">
+                <Users className="w-8 h-8 text-indigo-600" />
+                <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+              </div>
+              
+              <div className="flex items-center space-x-4">
+                <span className="text-gray-700">Welcome, {user?.username}!</span>
+                
+                <div className="relative user-menu-container" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowUserMenu(!showUserMenu);
+                    }}
+                    className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 transition-colors rounded-lg hover:bg-gray-100"
+                  >
+                    <User className="w-4 h-4" />
+                    <span>Account</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {showUserMenu && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50 animate-in slide-in-from-top-2 duration-200">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsProfileOpen(true);
+                          setShowUserMenu(false);
+                        }}
+                        className="flex items-center space-x-2 w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        <User className="w-4 h-4" />
+                        <span>Profile Settings</span>
+                      </button>
+                      
+                      <hr className="my-2 border-gray-200" />
+                      
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          logout();
+                          setShowUserMenu(false);
+                        }}
+                        className="flex items-center space-x-2 w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Logout</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center mb-12">
+            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full w-16 h-16 flex items-center justify-center shadow-lg mx-auto mb-6">
+              <Users className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Administrator Dashboard</h2>
+            <p className="text-lg text-gray-600 mb-8">Manage users and oversee team tasks</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 hover:shadow-lg transition-shadow cursor-pointer"
+                 onClick={() => setCurrentView('admin-tasks')}>
+              <div className="flex items-center justify-center w-16 h-16 bg-indigo-100 rounded-full mx-auto mb-6">
+                <ClipboardList className="w-8 h-8 text-indigo-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 text-center mb-3">Task Management</h3>
+              <p className="text-gray-600 text-center mb-6">
+                View and manage all user tasks, assign new tasks, and monitor team progress
+              </p>
+              <div className="flex justify-center">
+                <button className="bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors font-medium">
+                  Manage Tasks
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 hover:shadow-lg transition-shadow cursor-pointer"
+                 onClick={() => setCurrentView('user-management')}>
+              <div className="flex items-center justify-center w-16 h-16 bg-purple-100 rounded-full mx-auto mb-6">
+                <Users className="w-8 h-8 text-purple-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 text-center mb-3">User Management</h3>
+              <p className="text-gray-600 text-center mb-6">
+                Create and manage user accounts, assign admin privileges, and control access
+              </p>
+              <div className="flex justify-center">
+                <button className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors font-medium">
+                  Manage Users
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <UserProfile
+          isOpen={isProfileOpen}
+          onClose={() => setIsProfileOpen(false)}
+        />
+      </div>
+    );
   }
 
   return (
@@ -242,20 +413,6 @@ const Dashboard = memo(() => {
                       <User className="w-4 h-4" />
                       <span>Profile Settings</span>
                     </button>
-                    
-                    {user?.is_admin && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsUserManagementOpen(true);
-                          setShowUserMenu(false);
-                        }}
-                        className="flex items-center space-x-2 w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 transition-colors"
-                      >
-                        <Users className="w-4 h-4" />
-                        <span>Manage Users</span>
-                      </button>
-                    )}
                     
                     <hr className="my-2 border-gray-200" />
                     
@@ -412,13 +569,6 @@ const Dashboard = memo(() => {
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
       />
-      
-      {user?.is_admin && (
-        <UserManagement
-          isOpen={isUserManagementOpen}
-          onClose={() => setIsUserManagementOpen(false)}
-        />
-      )}
     </div>
   );
 });
