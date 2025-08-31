@@ -1,13 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, memo, FormEvent, ChangeEvent } from 'react';
+import { X, Calendar, Flag, Clock } from 'lucide-react';
+import type { Task, TaskFormData } from '../../types';
 
-const TaskModal = ({ isOpen, onClose, task = null, onSubmit }) => {
-  const [formData, setFormData] = useState({
+interface TaskModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  task?: Task | null;
+  onSubmit: (data: TaskFormData) => void;
+}
+
+const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalProps) => {
+  const [formData, setFormData] = useState<TaskFormData>({
     title: '',
     description: '',
     priority: 'medium',
     status: 'pending',
     due_date: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (task) {
@@ -27,111 +37,176 @@ const TaskModal = ({ isOpen, onClose, task = null, onSubmit }) => {
         due_date: ''
       });
     }
-  }, [task]);
+  }, [task, isOpen]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    onSubmit(formData);
-    onClose();
-  };
+    if (isSubmitting) return;
+    
+    setIsSubmitting(true);
+    try {
+      await onSubmit(formData);
+      onClose();
+    } catch (error) {
+      console.error('Failed to submit task:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [formData, onSubmit, onClose, isSubmitting]);
+
+  const handleInputChange = useCallback((e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleClose = useCallback(() => {
+    if (!isSubmitting) {
+      onClose();
+    }
+  }, [onClose, isSubmitting]);
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">
-          {task ? 'Edit Task' : 'Create New Task'}
-        </h2>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+      <div className="bg-white/95 backdrop-blur-sm rounded-3xl shadow-2xl max-w-lg w-full animate-in slide-in-from-bottom-4 duration-300">
+        <div className="relative p-8">
+          <button
+            onClick={handleClose}
+            disabled={isSubmitting}
+            className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all duration-200 disabled:opacity-50"
+          >
+            <X className="w-5 h-5" />
+          </button>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Title *
-            </label>
-            <input
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData({...formData, title: e.target.value})}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              required
-            />
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent mb-2">
+              {task ? 'Edit Task' : 'Create New Task'}
+            </h2>
+            <p className="text-gray-600">
+              {task ? 'Update your task details' : 'Fill in the details for your new task'}
+            </p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({...formData, description: e.target.value})}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent h-24 resize-none"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Priority
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Task Title *
               </label>
-              <select
-                value={formData.priority}
-                onChange={(e) => setFormData({...formData, priority: e.target.value})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
+              <input
+                type="text"
+                name="title"
+                value={formData.title}
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
+                placeholder="Enter task title"
+                required
+                disabled={isSubmitting}
+              />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Status
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Description
               </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({...formData, status: e.target.value})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
+              <textarea
+                name="description"
+                value={formData.description}
+                onChange={handleInputChange}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent h-28 resize-none transition-all duration-200 bg-white/70"
+                placeholder="Describe your task (optional)"
+                disabled={isSubmitting}
+              />
             </div>
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Due Date
-            </label>
-            <input
-              type="date"
-              value={formData.due_date}
-              onChange={(e) => setFormData({...formData, due_date: e.target.value})}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
-          </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="flex items-center space-x-2 text-sm font-semibold text-gray-700 mb-3">
+                  <Flag className="w-4 h-4" />
+                  <span>Priority</span>
+                </label>
+                <select
+                  name="priority"
+                  value={formData.priority}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
+                  disabled={isSubmitting}
+                >
+                  <option value="low">🟢 Low</option>
+                  <option value="medium">🟡 Medium</option>
+                  <option value="high">🔴 High</option>
+                </select>
+              </div>
 
-          <div className="flex space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
-            >
-              {task ? 'Update' : 'Create'}
-            </button>
-          </div>
-        </form>
+              <div>
+                <label className="flex items-center space-x-2 text-sm font-semibold text-gray-700 mb-3">
+                  <Clock className="w-4 h-4" />
+                  <span>Status</span>
+                </label>
+                <select
+                  name="status"
+                  value={formData.status}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
+                  disabled={isSubmitting}
+                >
+                  <option value="pending">⏳ Pending</option>
+                  <option value="in_progress">🔄 In Progress</option>
+                  <option value="completed">✅ Completed</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="flex items-center space-x-2 text-sm font-semibold text-gray-700 mb-3">
+                <Calendar className="w-4 h-4" />
+                <span>Due Date</span>
+              </label>
+              <input
+                type="date"
+                name="due_date"
+                value={formData.due_date}
+                onChange={handleInputChange}
+                min={new Date().toISOString().split('T')[0]}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
+                disabled={isSubmitting}
+              />
+            </div>
+
+            <div className="flex space-x-3 pt-6">
+              <button
+                type="button"
+                onClick={handleClose}
+                disabled={isSubmitting}
+                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 font-semibold disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || !formData.title.trim()}
+                className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-6 py-3 rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-semibold shadow-lg hover:shadow-xl"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center justify-center">
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    {task ? 'Updating...' : 'Creating...'}
+                  </span>
+                ) : (
+                  task ? '✨ Update Task' : '🚀 Create Task'
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
-};
+});
+
+TaskModal.displayName = 'TaskModal';
 
 export default TaskModal;

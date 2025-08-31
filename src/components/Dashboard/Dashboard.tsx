@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { useAuth } from '../../hooks/useAuth';
+import { useDebounce } from '../../hooks/useDebounce';
 import { getTasks, createTask, updateTask, deleteTask } from '../../services/apiService';
 import TaskCard from '../Tasks/TaskCard';
 import TaskModal from '../Tasks/TaskModal';
 import LoadingSpinner from '../common/LoadingSpinner';
+import UserProfile from '../User/UserProfile';
+import UserManagement from '../User/UserManagement';
+import type { Task, TaskFormData, TaskStats } from '../../types';
 import { 
   CheckSquare, 
   Plus, 
@@ -11,29 +15,29 @@ import {
   LogOut,
   Clock,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  User,
+  Users,
+  ChevronDown
 } from 'lucide-react';
 
-const Dashboard = () => {
-  const [tasks, setTasks] = useState([]);
-  const [filteredTasks, setFilteredTasks] = useState([]);
+const Dashboard = memo(() => {
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | Task['status']>('all');
+  const [priorityFilter, setPriorityFilter] = useState<'all' | Task['priority']>('all');
+  const [sortBy] = useState<'created' | 'due_date' | 'priority' | 'title'>('created');
   const [isLoading, setIsLoading] = useState(true);
   const { user, logout } = useAuth();
+  
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
-  useEffect(() => {
-    loadTasks();
-  }, []);
-
-  useEffect(() => {
-    filterTasks();
-  }, [tasks, searchTerm, statusFilter, priorityFilter]);
-
-  const loadTasks = async () => {
+  const loadTasks = useCallback(async () => {
     try {
       const tasksData = await getTasks();
       setTasks(tasksData);
@@ -42,84 +46,165 @@ const Dashboard = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const filterTasks = () => {
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showUserMenu && !target.closest('.user-menu-container')) {
+        setShowUserMenu(false);
+      }
+    };
+
+    if (showUserMenu) {
+      document.addEventListener('click', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [showUserMenu]);
+
+  const filteredAndSortedTasks = useMemo(() => {
     let filtered = tasks;
 
-    if (searchTerm) {
+    // Filter by search term
+    if (debouncedSearchTerm) {
+      const searchLower = debouncedSearchTerm.toLowerCase();
       filtered = filtered.filter(task =>
-        task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        task.description?.toLowerCase().includes(searchTerm.toLowerCase())
+        task.title.toLowerCase().includes(searchLower) ||
+        task.description?.toLowerCase().includes(searchLower)
       );
     }
 
+    // Filter by status
     if (statusFilter !== 'all') {
       filtered = filtered.filter(task => task.status === statusFilter);
     }
 
+    // Filter by priority
     if (priorityFilter !== 'all') {
       filtered = filtered.filter(task => task.priority === priorityFilter);
     }
 
-    setFilteredTasks(filtered);
-  };
+    // Sort tasks
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'title':
+          return a.title.localeCompare(b.title);
+        case 'due_date':
+          if (!a.due_date && !b.due_date) return 0;
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+        case 'priority':
+          const priorityOrder = { high: 3, medium: 2, low: 1 };
+          return priorityOrder[b.priority] - priorityOrder[a.priority];
+        default:
+          return new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime();
+      }
+    });
 
-  const handleCreateTask = async (taskData) => {
+    return filtered;
+  }, [tasks, debouncedSearchTerm, statusFilter, priorityFilter, sortBy]);
+
+  const handleCreateTask = useCallback(async (taskData: TaskFormData) => {
     try {
-      const newTask = await createTask(taskData);
-      setTasks([...tasks, newTask]);
+      const newTask = await createTask({
+        title: taskData.title,
+        description: taskData.description,
+        priority: taskData.priority,
+        status: taskData.status,
+        due_date: taskData.due_date || undefined
+      });
+      setTasks(prev => [newTask, ...prev]);
     } catch (error) {
       console.error('Failed to create task:', error);
+      throw error;
     }
-  };
+  }, []);
 
-  const handleUpdateTask = async (taskData) => {
+  const handleUpdateTask = useCallback(async (taskData: TaskFormData) => {
+    if (!editingTask) return;
     try {
-      const updatedTask = await updateTask(editingTask.id, taskData);
-      setTasks(tasks.map(task => task.id === editingTask.id ? updatedTask : task));
+      const updatedTask = await updateTask(editingTask.id, {
+        title: taskData.title,
+        description: taskData.description,
+        priority: taskData.priority,
+        status: taskData.status,
+        due_date: taskData.due_date || undefined
+      });
+      setTasks(prev => prev.map(task => task.id === editingTask.id ? updatedTask : task));
       setEditingTask(null);
     } catch (error) {
       console.error('Failed to update task:', error);
+      throw error;
     }
-  };
+  }, [editingTask]);
 
-  const handleDeleteTask = async (taskId) => {
+  const handleDeleteTask = useCallback(async (taskId: string) => {
     if (window.confirm('Are you sure you want to delete this task?')) {
       try {
         await deleteTask(taskId);
-        setTasks(tasks.filter(task => task.id !== taskId));
+        setTasks(prev => prev.filter(task => task.id !== taskId));
       } catch (error) {
         console.error('Failed to delete task:', error);
       }
     }
-  };
+  }, []);
 
-  const handleToggleStatus = async (task) => {
-    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+  const handleToggleStatus = useCallback(async (task: Task) => {
+    const newStatus: Task['status'] = task.status === 'completed' ? 'pending' : 'completed';
     try {
-      const updatedTaskData = { ...task, status: newStatus };
-      delete updatedTaskData.id; 
-      const updatedTask = await updateTask(task.id, updatedTaskData);
-      setTasks(tasks.map(t => t.id === task.id ? updatedTask : t));
+      const updatedTask = await updateTask(task.id, {
+        title: task.title,
+        description: task.description || '',
+        status: newStatus
+      });
+      setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
     } catch (error) {
       console.error('Failed to update task status:', error);
+      alert('Failed to update task status. Please try again.');
     }
-  };
+  }, []);
 
-  const taskStats = {
-    total: tasks.length,
-    completed: tasks.filter(t => t.status === 'completed').length,
-    pending: tasks.filter(t => t.status === 'pending').length,
-    inProgress: tasks.filter(t => t.status === 'in_progress').length
-  };
+
+  const handleCloseModal = useCallback(() => {
+    setIsModalOpen(false);
+    setEditingTask(null);
+  }, []);
+
+  const taskStats: TaskStats = useMemo(() => {
+    const stats = { total: tasks.length, completed: 0, pending: 0, inProgress: 0 };
+    
+    tasks.forEach(task => {
+      switch (task.status) {
+        case 'completed':
+          stats.completed++;
+          break;
+        case 'pending':
+          stats.pending++;
+          break;
+        case 'in_progress':
+          stats.inProgress++;
+          break;
+      }
+    });
+    
+    return stats;
+  }, [tasks]);
 
   if (isLoading) {
     return <LoadingSpinner message="Loading tasks..." />;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -130,13 +215,64 @@ const Dashboard = () => {
             
             <div className="flex items-center space-x-4">
               <span className="text-gray-700">Welcome, {user?.username}!</span>
-              <button
-                onClick={logout}
-                className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Logout</span>
-              </button>
+              
+              <div className="relative user-menu-container" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowUserMenu(!showUserMenu);
+                  }}
+                  className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-900 transition-colors rounded-lg hover:bg-gray-100"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Account</span>
+                  <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} />
+                </button>
+                
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-2 z-50 animate-in slide-in-from-top-2 duration-200">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsProfileOpen(true);
+                        setShowUserMenu(false);
+                      }}
+                      className="flex items-center space-x-2 w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 transition-colors"
+                    >
+                      <User className="w-4 h-4" />
+                      <span>Profile Settings</span>
+                    </button>
+                    
+                    {user?.is_admin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsUserManagementOpen(true);
+                          setShowUserMenu(false);
+                        }}
+                        className="flex items-center space-x-2 w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 transition-colors"
+                      >
+                        <Users className="w-4 h-4" />
+                        <span>Manage Users</span>
+                      </button>
+                    )}
+                    
+                    <hr className="my-2 border-gray-200" />
+                    
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        logout();
+                        setShowUserMenu(false);
+                      }}
+                      className="flex items-center space-x-2 w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Logout</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -201,7 +337,7 @@ const Dashboard = () => {
               
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | Task['status'])}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               >
                 <option value="all">All Status</option>
@@ -212,7 +348,7 @@ const Dashboard = () => {
               
               <select
                 value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
+                onChange={(e) => setPriorityFilter(e.target.value as 'all' | Task['priority'])}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               >
                 <option value="all">All Priority</option>
@@ -232,7 +368,7 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {filteredTasks.length === 0 ? (
+        {filteredAndSortedTasks.length === 0 ? (
           <div className="text-center py-12">
             <CheckSquare className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No tasks found</h3>
@@ -252,7 +388,7 @@ const Dashboard = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredTasks.map(task => (
+            {filteredAndSortedTasks.map(task => (
               <TaskCard
                 key={task.id}
                 task={task}
@@ -267,15 +403,26 @@ const Dashboard = () => {
 
       <TaskModal
         isOpen={isModalOpen || !!editingTask}
-        onClose={() => {
-          setIsModalOpen(false);
-          setEditingTask(null);
-        }}
+        onClose={handleCloseModal}
         task={editingTask}
         onSubmit={editingTask ? handleUpdateTask : handleCreateTask}
       />
+      
+      <UserProfile
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+      />
+      
+      {user?.is_admin && (
+        <UserManagement
+          isOpen={isUserManagementOpen}
+          onClose={() => setIsUserManagementOpen(false)}
+        />
+      )}
     </div>
   );
-};
+});
+
+Dashboard.displayName = 'Dashboard';
 
 export default Dashboard;

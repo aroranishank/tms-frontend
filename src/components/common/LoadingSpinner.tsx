@@ -1,6 +1,8 @@
-import React from 'react';
+interface LoadingSpinnerProps {
+  message?: string;
+}
 
-const LoadingSpinner = ({ message }) => {
+const LoadingSpinner = ({ message = 'Loading...' }: LoadingSpinnerProps) => {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="text-center">

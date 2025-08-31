@@ -1,6 +1,8 @@
-const API_BASE_URL = 'http://localhost:8000'; // Adjust to your backend URL
+import type { Task, LoginResponse, User, UserCreate, UserUpdate } from '../types';
 
-const getAuthHeaders = () => {
+const API_BASE_URL = 'http://localhost:8000';
+
+const getAuthHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('access_token');
   return {
     'Authorization': `Bearer ${token}`,
@@ -8,59 +10,160 @@ const getAuthHeaders = () => {
   };
 };
 
-export const loginUser = async (username, password) => {
+const handleApiError = async (response: Response): Promise<never> => {
+  const errorText = await response.text();
+  let errorMessage = 'An error occurred';
+  
+  try {
+    const errorData = JSON.parse(errorText);
+    errorMessage = errorData.detail || errorData.message || 'An error occurred';
+  } catch {
+    errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
+  }
+  
+  throw new Error(errorMessage);
+};
+
+export const loginUser = async (username: string, password: string): Promise<LoginResponse> => {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ username, password })
   });
-  if (!response.ok) throw new Error('Login failed');
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
   
   return response.json();
 };
 
-export const registerUser = async (username, email, password) => {
+export const registerUser = async (username: string, email: string, password: string): Promise<User> => {
   const response = await fetch(`${API_BASE_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, email, password })
   });
-  if (!response.ok) throw new Error('Registration failed');
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
   return response.json();
 };
 
-export const getTasks = async () => {
+export const getTasks = async (): Promise<Task[]> => {
   const response = await fetch(`${API_BASE_URL}/tasks`, {
     headers: getAuthHeaders()
   });
-  if (!response.ok) throw new Error('Failed to fetch tasks');
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
   return response.json();
 };
 
-export const createTask = async (task) => {
+export const createTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<Task> => {
   const response = await fetch(`${API_BASE_URL}/tasks`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(task)
   });
-  if (!response.ok) throw new Error('Failed to create task');
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
   return response.json();
 };
 
-export const updateTask = async (id, task) => {
+export const updateTask = async (id: string, task: Partial<Omit<Task, 'id' | 'created_at' | 'updated_at'>>): Promise<Task> => {
   const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
     method: 'PUT',
     headers: getAuthHeaders(),
     body: JSON.stringify(task)
   });
-  if (!response.ok) throw new Error('Failed to update task');
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
   return response.json();
 };
 
-export const deleteTask = async (id) => {
+export const deleteTask = async (id: string): Promise<void> => {
   const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
-  if (!response.ok) throw new Error('Failed to delete task');
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+};
+
+// User Management API calls
+export const getCurrentUser = async (): Promise<User> => {
+  const response = await fetch(`${API_BASE_URL}/users/me`, {
+    headers: getAuthHeaders()
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
+};
+
+export const updateCurrentUser = async (userData: UserUpdate): Promise<User> => {
+  const response = await fetch(`${API_BASE_URL}/users/me`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(userData)
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
+};
+
+// Admin-only user management
+export const getAllUsers = async (): Promise<User[]> => {
+  const response = await fetch(`${API_BASE_URL}/users`, {
+    headers: getAuthHeaders()
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
+};
+
+export const createUser = async (userData: UserCreate): Promise<User> => {
+  const response = await fetch(`${API_BASE_URL}/users`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(userData)
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
+};
+
+export const deleteUser = async (userId: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
 };
