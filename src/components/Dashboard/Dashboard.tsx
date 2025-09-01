@@ -134,7 +134,9 @@ const Dashboard = memo(() => {
         description: taskData.description,
         priority: taskData.priority,
         status: taskData.status,
-        due_date: taskData.due_date || undefined
+        due_date: taskData.due_date?.trim() || undefined,
+        start_datetime: taskData.start_datetime?.trim() || undefined,
+        end_datetime: taskData.end_datetime?.trim() || undefined
       });
       setTasks(prev => [newTask, ...prev]);
     } catch (error) {
@@ -151,7 +153,9 @@ const Dashboard = memo(() => {
         description: taskData.description,
         priority: taskData.priority,
         status: taskData.status,
-        due_date: taskData.due_date || undefined
+        due_date: taskData.due_date?.trim() || undefined,
+        start_datetime: taskData.start_datetime?.trim() || undefined,
+        end_datetime: taskData.end_datetime?.trim() || undefined
       });
       setTasks(prev => prev.map(task => task.id === editingTask.id ? updatedTask : task));
       setEditingTask(null);
@@ -178,7 +182,11 @@ const Dashboard = memo(() => {
       const updatedTask = await updateTask(task.id, {
         title: task.title,
         description: task.description || '',
-        status: newStatus
+        priority: task.priority,
+        status: newStatus,
+        due_date: task.due_datetime ? task.due_datetime.split('T')[0] : (task.due_date?.trim() || undefined),
+        start_datetime: task.start_datetime ? task.start_datetime.split('T')[0] : undefined,
+        end_datetime: task.end_datetime ? task.end_datetime.split('T')[0] : undefined
       });
       setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
     } catch (error) {

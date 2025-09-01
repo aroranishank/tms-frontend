@@ -15,7 +15,9 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
     description: '',
     priority: 'medium',
     status: 'pending',
-    due_date: ''
+    due_date: '',
+    start_datetime: '',
+    end_datetime: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -26,7 +28,9 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
         description: task.description || '',
         priority: task.priority || 'medium',
         status: task.status || 'pending',
-        due_date: task.due_date ? task.due_date.split('T')[0] : ''
+        due_date: task.due_datetime ? task.due_datetime.split('T')[0] : (task.due_date ? task.due_date.split('T')[0] : ''),
+        start_datetime: task.start_datetime ? task.start_datetime.split('T')[0] : '',
+        end_datetime: task.end_datetime ? task.end_datetime.split('T')[0] : ''
       });
     } else {
       setFormData({
@@ -34,7 +38,9 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
         description: '',
         priority: 'medium',
         status: 'pending',
-        due_date: ''
+        due_date: '',
+        start_datetime: '',
+        end_datetime: ''
       });
     }
   }, [task, isOpen]);
@@ -45,6 +51,7 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
     
     setIsSubmitting(true);
     try {
+      console.log('TaskModal submitting formData:', formData);
       await onSubmit(formData);
       onClose();
     } catch (error) {
@@ -157,20 +164,53 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
               </div>
             </div>
 
-            <div>
-              <label className="flex items-center space-x-2 text-sm font-semibold text-gray-700 mb-3">
-                <Calendar className="w-4 h-4" />
-                <span>Due Date</span>
-              </label>
-              <input
-                type="date"
-                name="due_date"
-                value={formData.due_date}
-                onChange={handleInputChange}
-                min={new Date().toISOString().split('T')[0]}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
-                disabled={isSubmitting}
-              />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="flex items-center space-x-2 text-sm font-semibold text-gray-700 mb-3">
+                  <Calendar className="w-4 h-4" />
+                  <span>Start Date</span>
+                </label>
+                <input
+                  type="date"
+                  name="start_datetime"
+                  value={formData.start_datetime}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
+                  disabled={isSubmitting}
+                />
+              </div>
+              
+              <div>
+                <label className="flex items-center space-x-2 text-sm font-semibold text-gray-700 mb-3">
+                  <Calendar className="w-4 h-4" />
+                  <span>End Date</span>
+                </label>
+                <input
+                  type="date"
+                  name="end_datetime"
+                  value={formData.end_datetime}
+                  onChange={handleInputChange}
+                  min={formData.start_datetime || new Date().toISOString().split('T')[0]}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <div>
+                <label className="flex items-center space-x-2 text-sm font-semibold text-gray-700 mb-3">
+                  <Calendar className="w-4 h-4" />
+                  <span>Due Date</span>
+                </label>
+                <input
+                  type="date"
+                  name="due_date"
+                  value={formData.due_date}
+                  onChange={handleInputChange}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
+                  disabled={isSubmitting}
+                />
+              </div>
             </div>
 
             <div className="flex space-x-3 pt-6">

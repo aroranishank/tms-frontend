@@ -14,7 +14,7 @@ import {
   User as UserIcon,
   Filter
 } from 'lucide-react';
-import { getAllUsers, getTasks, createTask, updateTask, deleteTask } from '../../services/apiService';
+import { getAllUsers, getTasks, getAllTasksForAdmin, createTask, createTaskForUser, updateTask, deleteTask } from '../../services/apiService';
 import TaskModal from '../Tasks/TaskModal';
 import type { User, Task, TaskFormData } from '../../types';
 
@@ -49,7 +49,7 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
     try {
       const [usersData, allTasks] = await Promise.all([
         getAllUsers(),
-        getTasks() // Using regular getTasks endpoint for now
+        getAllTasksForAdmin() // Using admin endpoint to get all tasks
       ]);
       
       setUsers(usersData);
@@ -67,14 +67,11 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
       });
 
       // Group tasks by user (only for regular users)
-      // Note: Currently all tasks appear under current user due to backend limitations
-      // In full implementation, tasks would be properly assigned to specific users
       allTasks.forEach(task => {
-        const userId = task.user_id || regularUsers[0]?.id || 'unassigned';
-        if (!userTasksMap.has(userId)) {
-          userTasksMap.set(userId, []);
+        const userId = task.user_id || task.owner_id || 'unassigned';
+        if (userTasksMap.has(userId)) {
+          userTasksMap.get(userId)!.push(task);
         }
-        userTasksMap.get(userId)!.push(task);
       });
 
       const userTasksData: UserWithTasks[] = regularUsers.map(user => {
@@ -88,7 +85,8 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
             else if (task.status === 'pending') acc.pendingCount++;
             
             // Check if task is overdue
-            if (task.due_date && new Date(task.due_date) < now && task.status !== 'completed') {
+            const dueDate = task.due_datetime || task.due_date;
+            if (dueDate && new Date(dueDate) < now && task.status !== 'completed') {
               acc.overdueCount++;
             }
             
@@ -115,6 +113,13 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
 
   useEffect(() => {
     loadData();
+    
+    // Set up interval to refresh data every 60 seconds to update overdue status
+    const interval = setInterval(() => {
+      loadData();
+    }, 60000); // 60 seconds
+    
+    return () => clearInterval(interval);
   }, [loadData]);
 
   const getStatusColor = (status: Task['status']) => {
@@ -145,8 +150,9 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
   };
 
   const isOverdue = (task: Task) => {
-    if (!task.due_date || task.status === 'completed') return false;
-    return new Date(task.due_date) < new Date();
+    const dueDate = task.due_datetime || task.due_date;
+    if (!dueDate || task.status === 'completed') return false;
+    return new Date(dueDate) < new Date();
   };
 
   const handleCreateTask = useCallback(async (taskData: TaskFormData) => {
@@ -161,15 +167,21 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
         throw new Error('Cannot assign tasks to admin users');
       }
       
-      // For now, create task using regular endpoint
-      // In a real implementation, this would assign to specific user
-      await createTask({
+      const taskPayload = {
         title: taskData.title,
         description: taskData.description,
         priority: taskData.priority,
         status: taskData.status,
-        due_date: taskData.due_date || undefined
-      });
+        due_date: taskData.due_date?.trim() || undefined,
+        start_datetime: taskData.start_datetime?.trim() || undefined,
+        end_datetime: taskData.end_datetime?.trim() || undefined
+      };
+      
+      console.log('AdminTaskManagement creating task for user:', assigningUserId);
+      console.log('Original taskData:', taskData);
+      
+      // Use admin endpoint to create task for specific user
+      await createTaskForUser(assigningUserId, taskPayload);
       
       await loadData(); // Refresh data
       setIsTaskModalOpen(false);
@@ -184,13 +196,20 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
     if (!editingTask) return;
     
     try {
-      await updateTask(editingTask.id, {
+      const updatePayload = {
         title: taskData.title,
         description: taskData.description,
         priority: taskData.priority,
         status: taskData.status,
-        due_date: taskData.due_date || undefined
-      });
+        due_date: taskData.due_date?.trim() || undefined,
+        start_datetime: taskData.start_datetime?.trim() || undefined,
+        end_datetime: taskData.end_datetime?.trim() || undefined
+      };
+      
+      console.log('AdminTaskManagement updating task with payload:', updatePayload);
+      console.log('Original taskData:', taskData);
+      
+      await updateTask(editingTask.id, updatePayload);
       
       await loadData(); // Refresh data
       setEditingTask(null);
@@ -226,15 +245,38 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
   };
 
   const filteredUserTasks = userTasks.filter(({ user, tasks }) => {
+    // Only filter by selected user, always show all users for status filtering
     if (selectedUser !== 'all' && user.id !== selectedUser) return false;
-    if (statusFilter === 'all') return true;
-    return tasks.some(task => task.status === statusFilter);
+    return true;
+  }).map(({ user, tasks, overdueCount, completedCount, inProgressCount, pendingCount }) => {
+    // Apply status filter to individual tasks within each user
+    const filteredTasks = statusFilter === 'all' ? tasks : tasks.filter(task => task.status === statusFilter);
+    
+    // Recalculate stats for all tasks (not just filtered ones) to show accurate overdue count
+    const allTaskStats = tasks.reduce(
+      (acc, task) => {
+        if (task.status === 'completed') acc.completedCount++;
+        else if (task.status === 'in_progress') acc.inProgressCount++;
+        else if (task.status === 'pending') acc.pendingCount++;
+        
+        const dueDate = task.due_datetime || task.due_date;
+        if (dueDate && new Date(dueDate) < new Date() && task.status !== 'completed') {
+          acc.overdueCount++;
+        }
+        
+        return acc;
+      },
+      { overdueCount: 0, completedCount: 0, inProgressCount: 0, pendingCount: 0 }
+    );
+    
+    return {
+      user,
+      tasks: filteredTasks, // Only tasks matching status filter for display
+      totalTaskCount: tasks.length, // Total number of tasks for this user
+      ...allTaskStats // But stats include all tasks for accurate counts
+    };
   });
 
-  const filteredTasks = (tasks: Task[]) => {
-    if (statusFilter === 'all') return tasks;
-    return tasks.filter(task => task.status === statusFilter);
-  };
 
   // Get only regular users for the dropdown filter
   const regularUsers = users.filter(user => !user.is_admin);
@@ -272,13 +314,23 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
     );
   }
 
+  // Calculate overall stats from original userTasks (not filtered) for accurate totals
   const overallStats = userTasks.reduce(
-    (acc, { overdueCount, completedCount, inProgressCount, pendingCount }) => ({
-      overdue: acc.overdue + overdueCount,
-      completed: acc.completed + completedCount,
-      inProgress: acc.inProgress + inProgressCount,
-      pending: acc.pending + pendingCount,
-    }),
+    (acc, { tasks }) => {
+      const now = new Date();
+      tasks.forEach(task => {
+        if (task.status === 'completed') acc.completed++;
+        else if (task.status === 'in_progress') acc.inProgress++;
+        else if (task.status === 'pending') acc.pending++;
+        
+        // Check if task is overdue (has due date, past due, and not completed)
+        const dueDate = task.due_datetime || task.due_date;
+        if (dueDate && new Date(dueDate) < now && task.status !== 'completed') {
+          acc.overdue++;
+        }
+      });
+      return acc;
+    },
     { overdue: 0, completed: 0, inProgress: 0, pending: 0 }
   );
 
@@ -305,17 +357,17 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Implementation Note */}
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-8">
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-8">
           <div className="flex items-start space-x-3">
-            <div className="bg-blue-100 rounded-full p-1 flex-shrink-0">
-              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <div className="bg-green-100 rounded-full p-1 flex-shrink-0">
+              <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
             <div className="flex-1">
-              <h4 className="text-sm font-medium text-blue-900 mb-1">Demo Implementation</h4>
-              <p className="text-sm text-blue-800">
-                This shows the admin task management interface. Currently displays existing tasks due to backend limitations. In a full implementation, tasks would be properly assigned to specific users.
+              <h4 className="text-sm font-medium text-green-900 mb-1">Admin Task Management</h4>
+              <p className="text-sm text-green-800">
+                This interface shows all tasks created by users in the system. Tasks are properly organized by their owners and admins can view, edit, and delete tasks as needed.
               </p>
             </div>
           </div>
@@ -402,7 +454,7 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
 
         {/* User Task Overview */}
         <div className="space-y-6">
-          {filteredUserTasks.map(({ user, tasks, overdueCount, completedCount, inProgressCount, pendingCount }) => (
+          {filteredUserTasks.map(({ user, tasks, totalTaskCount, overdueCount, completedCount, inProgressCount, pendingCount }) => (
             <div key={user.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
                 <div className="flex items-center justify-between">
@@ -420,7 +472,7 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
                         )}
                       </h3>
                       <p className="text-sm text-gray-600">
-                        {tasks.length} total tasks • {overdueCount > 0 && (
+                        {totalTaskCount} total tasks • {overdueCount > 0 && (
                           <span className="text-red-600 font-medium">{overdueCount} overdue • </span>
                         )}
                         {completedCount} completed • {inProgressCount} in progress • {pendingCount} pending
@@ -439,14 +491,24 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
               </div>
 
               <div className="p-6">
-                {filteredTasks(tasks).length === 0 ? (
+                {tasks.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <Clock className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                    <p>No tasks {statusFilter !== 'all' ? `with status "${statusFilter}"` : ''} for this user</p>
+                    <p>
+                      {statusFilter !== 'all' ? 
+                        `No tasks with status "${statusFilter.replace('_', ' ')}" for this user` : 
+                        'No tasks for this user'
+                      }
+                    </p>
+                    {statusFilter !== 'all' && totalTaskCount > 0 && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        This user has {totalTaskCount} total tasks, but none match the current filter
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="grid gap-4">
-                    {filteredTasks(tasks).map((task) => (
+                    {tasks.map((task) => (
                       <div
                         key={task.id}
                         className={`p-4 rounded-xl border-2 transition-all ${
@@ -478,10 +540,10 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
                               <p className="text-gray-600 text-sm mb-2">{task.description}</p>
                             )}
                             
-                            {task.due_date && (
+                            {(task.due_datetime || task.due_date) && (
                               <div className="flex items-center space-x-1 text-sm text-gray-500">
                                 <Calendar className="w-4 h-4" />
-                                <span>Due: {new Date(task.due_date).toLocaleDateString()}</span>
+                                <span>Due: {new Date(task.due_datetime || task.due_date!).toLocaleDateString()}</span>
                               </div>
                             )}
                           </div>

@@ -4,10 +4,15 @@ export interface Task {
   description?: string;
   priority: 'low' | 'medium' | 'high';
   status: 'pending' | 'in_progress' | 'completed';
-  due_date?: string;
+  due_date?: string; // Frontend compatibility
+  due_datetime?: string;
+  start_datetime?: string;
+  end_datetime?: string;
+  completion_datetime?: string;
   created_at?: string;
   updated_at?: string;
   user_id?: string;
+  owner_id?: string;
 }
 
 export interface User {
@@ -47,6 +52,8 @@ export interface TaskFormData {
   priority: Task['priority'];
   status: Task['status'];
   due_date: string;
+  start_datetime?: string;
+  end_datetime?: string;
 }
 
 export interface LoginResponse {

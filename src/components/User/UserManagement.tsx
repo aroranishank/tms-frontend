@@ -1,6 +1,6 @@
 import { useState, useCallback, memo, useEffect, FormEvent, ChangeEvent } from 'react';
 import { Users, UserPlus, Trash2, ArrowLeft, Shield, User as UserIcon, Eye, EyeOff, Edit3 } from 'lucide-react';
-import { getAllUsers, createUser, updateUser } from '../../services/apiService';
+import { getAllUsers, createUser, updateUser, deleteUser } from '../../services/apiService';
 import type { User, UserCreate, UserUpdate } from '../../types';
 
 interface UserManagementProps {
@@ -140,9 +140,19 @@ const UserManagement = memo(({ onBack }: UserManagementProps) => {
     setSuccess('');
   }, []);
 
-  const handleDeleteUser = useCallback(async (username: string) => {
-    // Backend doesn't support user deletion yet
-    setError(`User deletion is not yet supported by the backend. Please contact your administrator to remove user ${username}.`);
+  const handleDeleteUser = useCallback(async (userId: string, username: string) => {
+    if (window.confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+      setError('');
+      setSuccess('');
+      try {
+        await deleteUser(userId);
+        setUsers(prev => prev.filter(user => user.id !== userId));
+        setSuccess(`User "${username}" deleted successfully!`);
+      } catch (error) {
+        console.error('Failed to delete user:', error);
+        setError(error instanceof Error ? error.message : 'Failed to delete user');
+      }
+    }
   }, []);
 
   return (
@@ -225,7 +235,7 @@ const UserManagement = memo(({ onBack }: UserManagementProps) => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email
+                      Email *
                     </label>
                     <input
                       type="email"
@@ -234,6 +244,7 @@ const UserManagement = memo(({ onBack }: UserManagementProps) => {
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       placeholder="user@example.com"
+                      required
                       disabled={isCreating}
                     />
                   </div>
@@ -289,7 +300,7 @@ const UserManagement = memo(({ onBack }: UserManagementProps) => {
                   </button>
                   <button
                     type="submit"
-                    disabled={isCreating || !newUserData.username || !newUserData.password}
+                    disabled={isCreating || !newUserData.username || !newUserData.email || !newUserData.password}
                     className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2 rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 disabled:opacity-50 font-medium"
                   >
                     {isCreating ? 'Creating...' : 'Create User'}
@@ -439,7 +450,7 @@ const UserManagement = memo(({ onBack }: UserManagementProps) => {
                         <Edit3 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDeleteUser(user.username)}
+                        onClick={() => handleDeleteUser(user.id!, user.username)}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200"
                         title="Delete user"
                       >

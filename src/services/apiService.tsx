@@ -53,10 +53,46 @@ export const getTasks = async (): Promise<Task[]> => {
 };
 
 export const createTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<Task> => {
+  // Convert frontend date fields to backend datetime fields
+  const taskData = { ...task };
+  
+  console.log('createTask received:', task);
+  console.log('createTask taskData before conversion:', taskData);
+  
+  if (taskData.due_date !== undefined) {
+    if (taskData.due_date) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.due_datetime = taskData.due_date + 'T23:59:59.000Z';
+    } else {
+      taskData.due_datetime = null;
+    }
+    delete taskData.due_date;
+  }
+  
+  if (taskData.start_datetime !== undefined) {
+    if (taskData.start_datetime) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.start_datetime = taskData.start_datetime + 'T00:00:00.000Z';
+    } else {
+      taskData.start_datetime = null;
+    }
+  }
+  
+  if (taskData.end_datetime !== undefined) {
+    if (taskData.end_datetime) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.end_datetime = taskData.end_datetime + 'T23:59:59.000Z';
+    } else {
+      taskData.end_datetime = null;
+    }
+  }
+  
+  console.log('createTask final payload:', taskData);
+  
   const response = await fetch(`${API_BASE_URL}/tasks`, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify(task)
+    body: JSON.stringify(taskData)
   });
   
   if (!response.ok) {
@@ -67,10 +103,41 @@ export const createTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated
 };
 
 export const updateTask = async (id: string, task: Partial<Omit<Task, 'id' | 'created_at' | 'updated_at'>>): Promise<Task> => {
+  // Convert frontend date fields to backend datetime fields
+  const taskData = { ...task };
+  
+  if (taskData.due_date !== undefined) {
+    if (taskData.due_date) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.due_datetime = taskData.due_date + 'T23:59:59.000Z';
+    } else {
+      taskData.due_datetime = null;
+    }
+    delete taskData.due_date;
+  }
+  
+  if (taskData.start_datetime !== undefined) {
+    if (taskData.start_datetime) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.start_datetime = taskData.start_datetime + 'T00:00:00.000Z';
+    } else {
+      taskData.start_datetime = null;
+    }
+  }
+  
+  if (taskData.end_datetime !== undefined) {
+    if (taskData.end_datetime) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.end_datetime = taskData.end_datetime + 'T23:59:59.000Z';
+    } else {
+      taskData.end_datetime = null;
+    }
+  }
+  
   const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
     method: 'PUT',
     headers: getAuthHeaders(),
-    body: JSON.stringify(task)
+    body: JSON.stringify(taskData)
   });
   
   if (!response.ok) {
@@ -91,8 +158,69 @@ export const deleteTask = async (id: string): Promise<void> => {
   }
 };
 
-// Note: Admin-specific endpoints would be implemented here when backend supports them
-// For now, using regular task endpoints with admin permissions
+// Admin-specific task management
+export const getAllTasksForAdmin = async (): Promise<Task[]> => {
+  const response = await fetch(`${API_BASE_URL}/admin/tasks`, {
+    headers: getAuthHeaders()
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
+};
+
+export const createTaskForUser = async (userId: string, task: Omit<Task, 'id' | 'created_at' | 'updated_at' | 'owner_id'>): Promise<Task> => {
+  // Convert frontend date fields to backend datetime fields
+  const taskData = { ...task };
+  
+  console.log('createTaskForUser received:', task);
+  console.log('createTaskForUser taskData before conversion:', taskData);
+  
+  if (taskData.due_date !== undefined) {
+    if (taskData.due_date) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.due_date = taskData.due_date + 'T23:59:59.000Z';
+    } else {
+      taskData.due_date = null;
+    }
+  }
+  
+  if (taskData.start_datetime !== undefined) {
+    if (taskData.start_datetime) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.start_datetime = taskData.start_datetime + 'T00:00:00.000Z';
+    } else {
+      taskData.start_datetime = null;
+    }
+  }
+  
+  if (taskData.end_datetime !== undefined) {
+    if (taskData.end_datetime) {
+      // Keep the date in local timezone - just append time and convert to ISO
+      taskData.end_datetime = taskData.end_datetime + 'T23:59:59.000Z';
+    } else {
+      taskData.end_datetime = null;
+    }
+  }
+  delete taskData.user_id;
+  delete taskData.owner_id;
+  
+  console.log('createTaskForUser final payload:', taskData);
+  
+  const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/tasks`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(taskData)
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
+};
 
 // User Management API calls
 export const getCurrentUser = async (): Promise<User> => {
