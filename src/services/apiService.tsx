@@ -64,7 +64,7 @@ export const createTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.due_datetime = taskData.due_date + 'T23:59:59.000Z';
     } else {
-      taskData.due_datetime = null;
+      taskData.due_datetime = undefined;
     }
     delete taskData.due_date;
   }
@@ -74,7 +74,7 @@ export const createTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.start_datetime = taskData.start_datetime + 'T00:00:00.000Z';
     } else {
-      taskData.start_datetime = null;
+      taskData.start_datetime = undefined;
     }
   }
   
@@ -83,7 +83,7 @@ export const createTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.end_datetime = taskData.end_datetime + 'T23:59:59.000Z';
     } else {
-      taskData.end_datetime = null;
+      taskData.end_datetime = undefined;
     }
   }
   
@@ -102,16 +102,16 @@ export const createTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated
   return response.json();
 };
 
-export const updateTask = async (id: string, task: Partial<Omit<Task, 'id' | 'created_at' | 'updated_at'>>): Promise<Task> => {
+export const updateTask = async (id: string, task: Partial<Omit<Task, 'id' | 'created_at' | 'updated_at'>>, isAdmin: boolean = false): Promise<Task> => {
   // Convert frontend date fields to backend datetime fields
-  const taskData = { ...task };
+  let taskData = { ...task };
   
   if (taskData.due_date !== undefined) {
     if (taskData.due_date) {
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.due_datetime = taskData.due_date + 'T23:59:59.000Z';
     } else {
-      taskData.due_datetime = null;
+      taskData.due_datetime = undefined;
     }
     delete taskData.due_date;
   }
@@ -121,7 +121,7 @@ export const updateTask = async (id: string, task: Partial<Omit<Task, 'id' | 'cr
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.start_datetime = taskData.start_datetime + 'T00:00:00.000Z';
     } else {
-      taskData.start_datetime = null;
+      taskData.start_datetime = undefined;
     }
   }
   
@@ -130,8 +130,29 @@ export const updateTask = async (id: string, task: Partial<Omit<Task, 'id' | 'cr
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.end_datetime = taskData.end_datetime + 'T23:59:59.000Z';
     } else {
-      taskData.end_datetime = null;
+      taskData.end_datetime = undefined;
     }
+  }
+  
+  // Filter payload for normal users AFTER date conversions
+  // Apply restrictions if user is not admin (simpler approach)
+  const shouldRestrict = !isAdmin;
+  
+  if (shouldRestrict) {
+    const allowedFields = ['status', 'start_datetime', 'end_datetime'];
+    const originalTaskData = { ...taskData };
+    taskData = Object.keys(taskData).reduce((filtered, key) => {
+      if (allowedFields.includes(key)) {
+        (filtered as any)[key] = (taskData as any)[key];
+      }
+      return filtered;
+    }, {} as Partial<Omit<Task, 'id' | 'created_at' | 'updated_at'>>);
+    
+    console.log('🔒 Restricted task update (normal user):');
+    console.log('Original payload:', originalTaskData);
+    console.log('Filtered payload:', taskData);
+  } else {
+    console.log('✅ Full access task update (admin user):', taskData);
   }
   
   const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
@@ -183,7 +204,7 @@ export const createTaskForUser = async (userId: string, task: Omit<Task, 'id' | 
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.due_date = taskData.due_date + 'T23:59:59.000Z';
     } else {
-      taskData.due_date = null;
+      taskData.due_date = undefined;
     }
   }
   
@@ -192,7 +213,7 @@ export const createTaskForUser = async (userId: string, task: Omit<Task, 'id' | 
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.start_datetime = taskData.start_datetime + 'T00:00:00.000Z';
     } else {
-      taskData.start_datetime = null;
+      taskData.start_datetime = undefined;
     }
   }
   
@@ -201,11 +222,12 @@ export const createTaskForUser = async (userId: string, task: Omit<Task, 'id' | 
       // Keep the date in local timezone - just append time and convert to ISO
       taskData.end_datetime = taskData.end_datetime + 'T23:59:59.000Z';
     } else {
-      taskData.end_datetime = null;
+      taskData.end_datetime = undefined;
     }
   }
-  delete taskData.user_id;
-  delete taskData.owner_id;
+  // Remove fields that should not be sent to the API
+  delete (taskData as any).user_id;
+  delete (taskData as any).owner_id;
   
   console.log('createTaskForUser final payload:', taskData);
   

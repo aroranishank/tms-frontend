@@ -7,9 +7,11 @@ interface TaskModalProps {
   onClose: () => void;
   task?: Task | null;
   onSubmit: (data: TaskFormData) => void;
+  isAdmin?: boolean; // New prop to determine if user is admin
+  currentUserId?: string; // Current user's ID to check task ownership
 }
 
-const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalProps) => {
+const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit, isAdmin = true, currentUserId }: TaskModalProps) => {
   const [formData, setFormData] = useState<TaskFormData>({
     title: '',
     description: '',
@@ -20,6 +22,25 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
     end_datetime: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Determine if user has full edit access
+  // Admin users always have full access
+  // Normal users have:
+  // 1. Full access when creating new tasks (task is null)
+  // 2. Restricted access when editing existing tasks (regardless of who created them)
+  const hasFullAccess = isAdmin || !task;
+  const isRestrictedEdit = !hasFullAccess;
+
+  // Debug logging
+  console.log('🔍 TaskModal Access Debug:', {
+    isAdmin,
+    currentUserId,
+    taskExists: !!task,
+    taskTitle: task?.title,
+    hasFullAccess,
+    isRestrictedEdit,
+    mode: task ? 'edit' : 'create'
+  });
 
   useEffect(() => {
     if (task) {
@@ -93,6 +114,14 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
             <p className="text-gray-600">
               {task ? 'Update your task details' : 'Fill in the details for your new task'}
             </p>
+            {isRestrictedEdit && task && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-4">
+                <p className="text-sm text-amber-800 flex items-center">
+                  <span className="mr-2">ℹ️</span>
+                  <strong>Restricted Access:</strong> You can only edit Status, Start Date, and End Date (admin-created task)
+                </p>
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -105,11 +134,20 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
                 name="title"
                 value={formData.title}
                 onChange={handleInputChange}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
+                className={`w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 ${
+                  isRestrictedEdit ? 'bg-gray-100 cursor-not-allowed' : 'bg-white/70'
+                }`}
                 placeholder="Enter task title"
                 required
-                disabled={isSubmitting}
+                disabled={isSubmitting || isRestrictedEdit}
+                readOnly={isRestrictedEdit}
               />
+              {isRestrictedEdit && (
+                <p className="text-xs text-amber-600 mt-1 flex items-center">
+                  <span className="mr-1">🔒</span>
+                  This field is read-only for normal users
+                </p>
+              )}
             </div>
 
             <div>
@@ -120,10 +158,19 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
                 name="description"
                 value={formData.description}
                 onChange={handleInputChange}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent h-28 resize-none transition-all duration-200 bg-white/70"
+                className={`w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent h-28 resize-none transition-all duration-200 ${
+                  isRestrictedEdit ? 'bg-gray-100 cursor-not-allowed' : 'bg-white/70'
+                }`}
                 placeholder="Describe your task (optional)"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isRestrictedEdit}
+                readOnly={isRestrictedEdit}
               />
+              {isRestrictedEdit && (
+                <p className="text-xs text-amber-600 mt-1 flex items-center">
+                  <span className="mr-1">🔒</span>
+                  This field is read-only for normal users
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -136,13 +183,21 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
                   name="priority"
                   value={formData.priority}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
-                  disabled={isSubmitting}
+                  className={`w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 ${
+                    isRestrictedEdit ? 'bg-gray-100 cursor-not-allowed' : 'bg-white/70'
+                  }`}
+                  disabled={isSubmitting || isRestrictedEdit}
                 >
                   <option value="low">🟢 Low</option>
                   <option value="medium">🟡 Medium</option>
                   <option value="high">🔴 High</option>
                 </select>
+                {isRestrictedEdit && (
+                  <p className="text-xs text-amber-600 mt-1 flex items-center">
+                    <span className="mr-1">🔒</span>
+                    Read-only for normal users
+                  </p>
+                )}
               </div>
 
               <div>
@@ -207,9 +262,18 @@ const TaskModal = memo(({ isOpen, onClose, task = null, onSubmit }: TaskModalPro
                   value={formData.due_date}
                   onChange={handleInputChange}
                   min={new Date().toISOString().split('T')[0]}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 bg-white/70"
-                  disabled={isSubmitting}
+                  className={`w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 ${
+                    isRestrictedEdit ? 'bg-gray-100 cursor-not-allowed' : 'bg-white/70'
+                  }`}
+                  disabled={isSubmitting || isRestrictedEdit}
+                  readOnly={isRestrictedEdit}
                 />
+                {isRestrictedEdit && (
+                  <p className="text-xs text-amber-600 mt-1 flex items-center">
+                    <span className="mr-1">🔒</span>
+                    Read-only for normal users
+                  </p>
+                )}
               </div>
             </div>
 

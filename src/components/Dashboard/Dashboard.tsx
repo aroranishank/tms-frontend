@@ -156,14 +156,14 @@ const Dashboard = memo(() => {
         due_date: taskData.due_date?.trim() || undefined,
         start_datetime: taskData.start_datetime?.trim() || undefined,
         end_datetime: taskData.end_datetime?.trim() || undefined
-      });
+      }, user?.is_admin || false);
       setTasks(prev => prev.map(task => task.id === editingTask.id ? updatedTask : task));
       setEditingTask(null);
     } catch (error) {
       console.error('Failed to update task:', error);
       throw error;
     }
-  }, [editingTask]);
+  }, [editingTask, user?.is_admin]);
 
   const handleDeleteTask = useCallback(async (taskId: string) => {
     if (window.confirm('Are you sure you want to delete this task?')) {
@@ -187,13 +187,13 @@ const Dashboard = memo(() => {
         due_date: task.due_datetime ? task.due_datetime.split('T')[0] : (task.due_date?.trim() || undefined),
         start_datetime: task.start_datetime ? task.start_datetime.split('T')[0] : undefined,
         end_datetime: task.end_datetime ? task.end_datetime.split('T')[0] : undefined
-      });
+      }, user?.is_admin || false);
       setTasks(prev => prev.map(t => t.id === task.id ? updatedTask : t));
     } catch (error) {
       console.error('Failed to update task status:', error);
       alert('Failed to update task status. Please try again.');
     }
-  }, []);
+  }, [user?.is_admin]);
 
 
   const handleCloseModal = useCallback(() => {
@@ -571,6 +571,8 @@ const Dashboard = memo(() => {
         onClose={handleCloseModal}
         task={editingTask}
         onSubmit={editingTask ? handleUpdateTask : handleCreateTask}
+        isAdmin={user?.is_admin || false}
+        currentUserId={user?.id}
       />
       
       <UserProfile

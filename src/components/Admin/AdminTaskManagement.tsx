@@ -14,7 +14,7 @@ import {
   User as UserIcon,
   Filter
 } from 'lucide-react';
-import { getAllUsers, getTasks, getAllTasksForAdmin, createTask, createTaskForUser, updateTask, deleteTask } from '../../services/apiService';
+import { getAllUsers, getAllTasksForAdmin, createTaskForUser, updateTask, deleteTask } from '../../services/apiService';
 import TaskModal from '../Tasks/TaskModal';
 import type { User, Task, TaskFormData } from '../../types';
 
@@ -33,7 +33,6 @@ interface UserWithTasks {
 
 const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
   const [users, setUsers] = useState<User[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [userTasks, setUserTasks] = useState<UserWithTasks[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -53,7 +52,6 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
       ]);
       
       setUsers(usersData);
-      setTasks(allTasks);
 
       // Filter out admin users - they should not have tasks
       const regularUsers = usersData.filter(user => !user.is_admin);
@@ -209,7 +207,7 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
       console.log('AdminTaskManagement updating task with payload:', updatePayload);
       console.log('Original taskData:', taskData);
       
-      await updateTask(editingTask.id, updatePayload);
+      await updateTask(editingTask.id, updatePayload, true); // Admin has full access
       
       await loadData(); // Refresh data
       setEditingTask(null);
@@ -244,11 +242,11 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
     setIsTaskModalOpen(true);
   };
 
-  const filteredUserTasks = userTasks.filter(({ user, tasks }) => {
-    // Only filter by selected user, always show all users for status filtering
-    if (selectedUser !== 'all' && user.id !== selectedUser) return false;
-    return true;
-  }).map(({ user, tasks, overdueCount, completedCount, inProgressCount, pendingCount }) => {
+  const filteredUserTasks = userTasks.filter(({ user }) => {
+    // Filter by selected user - if 'all' is selected, show all users; otherwise show only the selected user
+    // Use loose comparison to handle number vs string ID mismatch
+    return selectedUser === 'all' || user.id == selectedUser;
+  }).map(({ user, tasks }) => {
     // Apply status filter to individual tasks within each user
     const filteredTasks = statusFilter === 'all' ? tasks : tasks.filter(task => task.status === statusFilter);
     
@@ -454,6 +452,31 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
 
         {/* User Task Overview */}
         <div className="space-y-6">
+          {filteredUserTasks.length === 0 && selectedUser !== 'all' ? (
+            <div className="text-center py-12">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-8">
+                <UserIcon className="w-16 h-16 text-blue-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-blue-900 mb-2">User Not Found</h3>
+                <p className="text-blue-700">
+                  Selected user ID "{selectedUser}" not found. Total users: {userTasks.length}
+                </p>
+                <p className="text-sm text-blue-600 mt-2">
+                  Available user IDs: {userTasks.map(ut => ut.user.id).join(', ')}
+                </p>
+              </div>
+            </div>
+          ) : filteredUserTasks.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-8">
+                <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Users Found</h3>
+                <p className="text-gray-600">
+                  There are no regular users in the system yet.
+                </p>
+              </div>
+            </div>
+          ) : null}
+          
           {filteredUserTasks.map(({ user, tasks, totalTaskCount, overdueCount, completedCount, inProgressCount, pendingCount }) => (
             <div key={user.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
@@ -584,6 +607,7 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
         }}
         task={editingTask}
         onSubmit={editingTask ? handleUpdateTask : handleCreateTask}
+        isAdmin={true}
       />
     </div>
   );
