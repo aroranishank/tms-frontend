@@ -72,3 +72,17 @@ export interface TaskStats {
   pending: number;
   inProgress: number;
 }
+
+export interface PaginationInfo {
+  current_page: number;
+  total_pages: number;
+  total_items: number;
+  items_per_page: number;
+  has_next: boolean;
+  has_previous: boolean;
+}
+
+export interface PaginatedUsersResponse {
+  users: User[];
+  pagination: PaginationInfo;
+}

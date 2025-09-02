@@ -1,4 +1,4 @@
-import type { Task, LoginResponse, User, UserCreate, UserUpdate } from '../types';
+import type { Task, LoginResponse, User, UserCreate, UserUpdate, PaginatedUsersResponse } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -274,6 +274,35 @@ export const updateCurrentUser = async (userData: UserUpdate): Promise<User> => 
 // Admin-only user management
 export const getAllUsers = async (): Promise<User[]> => {
   const response = await fetch(`${API_BASE_URL}/users`, {
+    headers: getAuthHeaders()
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  const result = await response.json();
+  // Handle backward compatibility - if it's paginated response, return just users
+  if (result.users) {
+    return result.users;
+  }
+  return result;
+};
+
+export const searchUsers = async (
+  search?: string, 
+  page: number = 1, 
+  limit: number = 10
+): Promise<PaginatedUsersResponse> => {
+  const params = new URLSearchParams();
+  
+  if (search !== undefined && search !== null) {
+    params.append('search', search);
+  }
+  params.append('page', page.toString());
+  params.append('limit', limit.toString());
+  
+  const response = await fetch(`${API_BASE_URL}/users?${params}`, {
     headers: getAuthHeaders()
   });
   
