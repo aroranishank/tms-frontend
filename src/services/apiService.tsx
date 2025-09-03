@@ -52,6 +52,31 @@ export const getTasks = async (): Promise<Task[]> => {
   return response.json();
 };
 
+// Search tasks for regular users with pagination
+export const searchUserTasks = async (
+  search?: string, 
+  page: number = 1, 
+  limit: number = 10
+): Promise<{ tasks: Task[]; pagination: PaginationInfo }> => {
+  const params = new URLSearchParams();
+  
+  if (search !== undefined && search !== null && search.trim() !== '') {
+    params.append('search', search);
+  }
+  params.append('page', page.toString());
+  params.append('limit', limit.toString());
+  
+  const response = await fetch(`${API_BASE_URL}/tasks/?${params}`, {
+    headers: getAuthHeaders()
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
+  return response.json();
+};
+
 export const createTask = async (task: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<Task> => {
   // Convert frontend date fields to backend datetime fields
   const taskData = { ...task };
