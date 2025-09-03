@@ -189,6 +189,35 @@ export const getAllTasksForAdmin = async (): Promise<Task[]> => {
     await handleApiError(response);
   }
   
+  const result = await response.json();
+  // Handle backward compatibility - if it's paginated response, return just tasks
+  if (result.tasks) {
+    return result.tasks;
+  }
+  return result;
+};
+
+export const searchTasks = async (
+  search?: string, 
+  page: number = 1, 
+  limit: number = 10
+): Promise<{ tasks: Task[]; pagination: PaginationInfo }> => {
+  const params = new URLSearchParams();
+  
+  if (search !== undefined && search !== null) {
+    params.append('search', search);
+  }
+  params.append('page', page.toString());
+  params.append('limit', limit.toString());
+  
+  const response = await fetch(`${API_BASE_URL}/admin/tasks?${params}`, {
+    headers: getAuthHeaders()
+  });
+  
+  if (!response.ok) {
+    await handleApiError(response);
+  }
+  
   return response.json();
 };
 

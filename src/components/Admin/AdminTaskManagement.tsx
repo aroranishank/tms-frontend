@@ -1,4 +1,4 @@
-import { useState, useCallback, memo, useEffect } from 'react';
+import { useState, useCallback, memo, useEffect, useRef } from 'react';
 import { 
   ArrowLeft, 
   Users, 
@@ -12,106 +12,89 @@ import {
   Trash2,
   Calendar,
   User as UserIcon,
-  Filter
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
-import { getAllUsers, getAllTasksForAdmin, createTaskForUser, updateTask, deleteTask } from '../../services/apiService';
-import TaskModal from '../Tasks/TaskModal';
-import type { User, Task, TaskFormData } from '../../types';
+import { getAllUsers, searchTasks, createTaskForUser, updateTask, deleteTask } from '../../services/apiService';
+import TaskEditModal from './TaskEditModal';
+import StatusTasksModal from './StatusTasksModal';
+import TaskCreationModal from './TaskCreationModal';
+import type { User, Task, TaskFormData, PaginationInfo } from '../../types';
 
 interface AdminTaskManagementProps {
   onBack: () => void;
 }
 
-interface UserWithTasks {
-  user: User;
-  tasks: Task[];
-  overdueCount: number;
-  completedCount: number;
-  inProgressCount: number;
-  pendingCount: number;
-}
-
 const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
   const [users, setUsers] = useState<User[]>([]);
-  const [userTasks, setUserTasks] = useState<UserWithTasks[]>([]);
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [pagination, setPagination] = useState<PaginationInfo>({
+    current_page: 1,
+    total_pages: 1,
+    total_items: 0,
+    items_per_page: 10,
+    has_next: false,
+    has_previous: false
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedUser, setSelectedUser] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | Task['status']>('all');
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [assigningUserId, setAssigningUserId] = useState<string>('');
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [statusModalType, setStatusModalType] = useState<'overdue' | 'in_progress' | 'pending' | 'completed'>('pending');
+  const [statusModalTitle, setStatusModalTitle] = useState('');
+  const [isTaskCreationModalOpen, setIsTaskCreationModalOpen] = useState(false);
+  const [isTaskEditModalOpen, setIsTaskEditModalOpen] = useState(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const [usersData, allTasks] = await Promise.all([
+      const [usersData, tasksResponse] = await Promise.all([
         getAllUsers(),
-        getAllTasksForAdmin() // Using admin endpoint to get all tasks
+        searchTasks(searchTerm.trim() === '' ? undefined : searchTerm, currentPage, 10)
       ]);
       
       setUsers(usersData);
-
-      // Filter out admin users - they should not have tasks
-      const regularUsers = usersData.filter(user => !user.is_admin);
-      
-      // Group tasks by user and calculate statistics
-      const userTasksMap = new Map<string, Task[]>();
-      
-      // Initialize all regular users with empty task arrays
-      regularUsers.forEach(user => {
-        userTasksMap.set(user.id!, []);
-      });
-
-      // Group tasks by user (only for regular users)
-      allTasks.forEach(task => {
-        const userId = task.user_id || task.owner_id || 'unassigned';
-        if (userTasksMap.has(userId)) {
-          userTasksMap.get(userId)!.push(task);
-        }
-      });
-
-      const userTasksData: UserWithTasks[] = regularUsers.map(user => {
-        const userTasks = userTasksMap.get(user.id!) || [];
-        const now = new Date();
-        
-        const stats = userTasks.reduce(
-          (acc, task) => {
-            if (task.status === 'completed') acc.completedCount++;
-            else if (task.status === 'in_progress') acc.inProgressCount++;
-            else if (task.status === 'pending') acc.pendingCount++;
-            
-            // Check if task is overdue
-            const dueDate = task.due_datetime || task.due_date;
-            if (dueDate && new Date(dueDate) < now && task.status !== 'completed') {
-              acc.overdueCount++;
-            }
-            
-            return acc;
-          },
-          { overdueCount: 0, completedCount: 0, inProgressCount: 0, pendingCount: 0 }
-        );
-
-        return {
-          user,
-          tasks: userTasks,
-          ...stats
-        };
-      });
-
-      setUserTasks(userTasksData);
+      setAllTasks(tasksResponse.tasks);
+      setPagination(tasksResponse.pagination);
     } catch (error) {
       console.error('Failed to load data:', error);
       setError('Failed to load task management data');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [searchTerm, currentPage]);
 
   useEffect(() => {
     loadData();
-    
+  }, [currentPage]);
+
+  useEffect(() => {
+    // Debounced search effect
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      if (searchTerm.length >= 3 || searchTerm === '*' || searchTerm === '') {
+        setCurrentPage(1); // Reset to first page on new search
+        loadData();
+      }
+    }, 500); // 500ms delay
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [searchTerm]);
+
+  useEffect(() => {
     // Set up interval to refresh data every 60 seconds to update overdue status
     const interval = setInterval(() => {
       loadData();
@@ -153,7 +136,39 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
     return new Date(dueDate) < new Date();
   };
 
-  const handleCreateTask = useCallback(async (taskData: TaskFormData) => {
+  const handleCreateTask = useCallback(async (taskData: TaskFormData, userId: string) => {
+    try {
+      // Ensure we're not assigning tasks to admin users
+      const targetUser = users.find(user => user.id === userId);
+      if (targetUser?.is_admin) {
+        throw new Error('Cannot assign tasks to admin users');
+      }
+      
+      const taskPayload = {
+        title: taskData.title,
+        description: taskData.description,
+        priority: taskData.priority,
+        status: taskData.status,
+        due_date: taskData.due_date?.trim() || undefined,
+        start_datetime: taskData.start_datetime?.trim() || undefined,
+        end_datetime: taskData.end_datetime?.trim() || undefined
+      };
+      
+      console.log('AdminTaskManagement creating task for user:', userId);
+      console.log('Original taskData:', taskData);
+      
+      // Use admin endpoint to create task for specific user
+      await createTaskForUser(userId, taskPayload);
+      
+      await loadData(); // Refresh data
+      setIsTaskCreationModalOpen(false);
+    } catch (error) {
+      console.error('Failed to create task:', error);
+      throw error;
+    }
+  }, [loadData, users]);
+
+  const handleLegacyCreateTask = useCallback(async (taskData: TaskFormData) => {
     try {
       if (!assigningUserId) {
         throw new Error('Please select a user to assign the task to');
@@ -190,7 +205,7 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
     }
   }, [assigningUserId, loadData, users]);
 
-  const handleUpdateTask = useCallback(async (taskData: TaskFormData) => {
+  const handleUpdateTask = useCallback(async (taskData: TaskFormData & { owner_id?: string }) => {
     if (!editingTask) return;
     
     try {
@@ -201,7 +216,8 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
         status: taskData.status,
         due_date: taskData.due_date?.trim() || undefined,
         start_datetime: taskData.start_datetime?.trim() || undefined,
-        end_datetime: taskData.end_datetime?.trim() || undefined
+        end_datetime: taskData.end_datetime?.trim() || undefined,
+        ...(taskData.owner_id && { owner_id: taskData.owner_id })
       };
       
       console.log('AdminTaskManagement updating task with payload:', updatePayload);
@@ -236,47 +252,23 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
     setIsTaskModalOpen(true);
   };
 
+  const handleStatusTileClick = (type: 'overdue' | 'in_progress' | 'pending' | 'completed', title: string) => {
+    setStatusModalType(type);
+    setStatusModalTitle(title);
+    setIsStatusModalOpen(true);
+  };
+
+  const handleNewTaskClick = () => {
+    setIsTaskCreationModalOpen(true);
+  };
+
   const handleEditTaskClick = (task: Task) => {
     setEditingTask(task);
     setAssigningUserId('');
-    setIsTaskModalOpen(true);
+    setIsTaskEditModalOpen(true);
   };
 
-  const filteredUserTasks = userTasks.filter(({ user }) => {
-    // Filter by selected user - if 'all' is selected, show all users; otherwise show only the selected user
-    // Use loose comparison to handle number vs string ID mismatch
-    return selectedUser === 'all' || user.id == selectedUser;
-  }).map(({ user, tasks }) => {
-    // Apply status filter to individual tasks within each user
-    const filteredTasks = statusFilter === 'all' ? tasks : tasks.filter(task => task.status === statusFilter);
-    
-    // Recalculate stats for all tasks (not just filtered ones) to show accurate overdue count
-    const allTaskStats = tasks.reduce(
-      (acc, task) => {
-        if (task.status === 'completed') acc.completedCount++;
-        else if (task.status === 'in_progress') acc.inProgressCount++;
-        else if (task.status === 'pending') acc.pendingCount++;
-        
-        const dueDate = task.due_datetime || task.due_date;
-        if (dueDate && new Date(dueDate) < new Date() && task.status !== 'completed') {
-          acc.overdueCount++;
-        }
-        
-        return acc;
-      },
-      { overdueCount: 0, completedCount: 0, inProgressCount: 0, pendingCount: 0 }
-    );
-    
-    return {
-      user,
-      tasks: filteredTasks, // Only tasks matching status filter for display
-      totalTaskCount: tasks.length, // Total number of tasks for this user
-      ...allTaskStats // But stats include all tasks for accurate counts
-    };
-  });
-
-
-  // Get only regular users for the dropdown filter
+  // Get only regular users (no filtering needed since we removed user filter)
   const regularUsers = users.filter(user => !user.is_admin);
 
   if (isLoading) {
@@ -312,21 +304,19 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
     );
   }
 
-  // Calculate overall stats from original userTasks (not filtered) for accurate totals
-  const overallStats = userTasks.reduce(
-    (acc, { tasks }) => {
+  // Calculate overall stats from allTasks for accurate totals
+  const overallStats = allTasks.reduce(
+    (acc, task) => {
       const now = new Date();
-      tasks.forEach(task => {
-        if (task.status === 'completed') acc.completed++;
-        else if (task.status === 'in_progress') acc.inProgress++;
-        else if (task.status === 'pending') acc.pending++;
-        
-        // Check if task is overdue (has due date, past due, and not completed)
-        const dueDate = task.due_datetime || task.due_date;
-        if (dueDate && new Date(dueDate) < now && task.status !== 'completed') {
-          acc.overdue++;
-        }
-      });
+      if (task.status === 'completed') acc.completed++;
+      else if (task.status === 'in_progress') acc.inProgress++;
+      else if (task.status === 'pending') acc.pending++;
+      
+      // Check if task is overdue (has due date, past due, and not completed)
+      const dueDate = task.due_datetime || task.due_date;
+      if (dueDate && new Date(dueDate) < now && task.status !== 'completed') {
+        acc.overdue++;
+      }
       return acc;
     },
     { overdue: 0, completed: 0, inProgress: 0, pending: 0 }
@@ -354,184 +344,149 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Implementation Note */}
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-8">
-          <div className="flex items-start space-x-3">
-            <div className="bg-green-100 rounded-full p-1 flex-shrink-0">
-              <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <h4 className="text-sm font-medium text-green-900 mb-1">Admin Task Management</h4>
-              <p className="text-sm text-green-800">
-                This interface shows all tasks created by users in the system. Tasks are properly organized by their owners and admins can view, edit, and delete tasks as needed.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Overview Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Overdue Tasks</p>
-                <p className="text-3xl font-bold text-red-600">{overallStats.overdue}</p>
+        <div className="space-y-8">
+          {/* Implementation Note */}
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+            <div className="flex items-start space-x-3">
+              <div className="bg-green-100 rounded-full p-1 flex-shrink-0">
+                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
               </div>
-              <AlertTriangle className="w-8 h-8 text-red-400" />
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">In Progress</p>
-                <p className="text-3xl font-bold text-yellow-600">{overallStats.inProgress}</p>
-              </div>
-              <Play className="w-8 h-8 text-yellow-400" />
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Pending</p>
-                <p className="text-3xl font-bold text-gray-600">{overallStats.pending}</p>
-              </div>
-              <Clock className="w-8 h-8 text-gray-400" />
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-3xl font-bold text-green-600">{overallStats.completed}</p>
-              </div>
-              <CheckCircle className="w-8 h-8 text-green-400" />
-            </div>
-          </div>
-        </div>
-
-        {/* Filters */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-            <div className="flex items-center space-x-2">
-              <Filter className="w-5 h-5 text-gray-400" />
-              <span className="font-medium text-gray-900">Filters:</span>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
-              <select
-                value={selectedUser}
-                onChange={(e) => setSelectedUser(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option value="all">All Users</option>
-                {regularUsers.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.username}
-                  </option>
-                ))}
-              </select>
-              
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as 'all' | Task['status'])}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* User Task Overview */}
-        <div className="space-y-6">
-          {filteredUserTasks.length === 0 && selectedUser !== 'all' ? (
-            <div className="text-center py-12">
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-8">
-                <UserIcon className="w-16 h-16 text-blue-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-blue-900 mb-2">User Not Found</h3>
-                <p className="text-blue-700">
-                  Selected user ID "{selectedUser}" not found. Total users: {userTasks.length}
-                </p>
-                <p className="text-sm text-blue-600 mt-2">
-                  Available user IDs: {userTasks.map(ut => ut.user.id).join(', ')}
+              <div className="flex-1">
+                <h4 className="text-sm font-medium text-green-900 mb-1">Admin Task Management</h4>
+                <p className="text-sm text-green-800">
+                  Search and manage all tasks in the system. Tasks are displayed based on your search criteria.
                 </p>
               </div>
             </div>
-          ) : filteredUserTasks.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-8">
-                <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Users Found</h3>
-                <p className="text-gray-600">
-                  There are no regular users in the system yet.
-                </p>
-              </div>
-            </div>
-          ) : null}
-          
-          {filteredUserTasks.map(({ user, tasks, totalTaskCount, overdueCount, completedCount, inProgressCount, pendingCount }) => (
-            <div key={user.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
-                      <UserIcon className="w-5 h-5 text-indigo-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
-                        <span>{user.username}</span>
-                        {user.is_admin && (
-                          <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full font-medium">
-                            Admin
-                          </span>
-                        )}
-                      </h3>
-                      <p className="text-sm text-gray-600">
-                        {totalTaskCount} total tasks • {overdueCount > 0 && (
-                          <span className="text-red-600 font-medium">{overdueCount} overdue • </span>
-                        )}
-                        {completedCount} completed • {inProgressCount} in progress • {pendingCount} pending
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={() => handleAddTaskClick(user.id!)}
-                    className="flex items-center space-x-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add Task</span>
-                  </button>
+          </div>
+
+          {/* Overview Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <button
+              onClick={() => handleStatusTileClick('overdue', 'Overdue Tasks')}
+              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-red-300 transition-all duration-200 text-left w-full"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Overdue Tasks</p>
+                  <p className="text-3xl font-bold text-red-600">{overallStats.overdue}</p>
                 </div>
+                <AlertTriangle className="w-8 h-8 text-red-400" />
               </div>
+            </button>
+            
+            <button
+              onClick={() => handleStatusTileClick('in_progress', 'In Progress Tasks')}
+              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-yellow-300 transition-all duration-200 text-left w-full"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">In Progress</p>
+                  <p className="text-3xl font-bold text-yellow-600">{overallStats.inProgress}</p>
+                </div>
+                <Play className="w-8 h-8 text-yellow-400" />
+              </div>
+            </button>
+            
+            <button
+              onClick={() => handleStatusTileClick('pending', 'Pending Tasks')}
+              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-gray-300 transition-all duration-200 text-left w-full"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Pending</p>
+                  <p className="text-3xl font-bold text-gray-600">{overallStats.pending}</p>
+                </div>
+                <Clock className="w-8 h-8 text-gray-400" />
+              </div>
+            </button>
+            
+            <button
+              onClick={() => handleStatusTileClick('completed', 'Completed Tasks')}
+              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md hover:border-green-300 transition-all duration-200 text-left w-full"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Completed</p>
+                  <p className="text-3xl font-bold text-green-600">{overallStats.completed}</p>
+                </div>
+                <CheckCircle className="w-8 h-8 text-green-400" />
+              </div>
+            </button>
+          </div>
 
-              <div className="p-6">
-                {tasks.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <Clock className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                    <p>
-                      {statusFilter !== 'all' ? 
-                        `No tasks with status "${statusFilter.replace('_', ' ')}" for this user` : 
-                        'No tasks for this user'
-                      }
+          {/* Search */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search tasks by title, description, username, or email... (min 3 chars, * for all)"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+              
+              {/* Results info */}
+              <div className="text-sm text-gray-600">
+                {pagination.total_items > 0 && (
+                  <>
+                    Showing {((currentPage - 1) * pagination.items_per_page) + 1}-{Math.min(currentPage * pagination.items_per_page, pagination.total_items)} of {pagination.total_items} tasks
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Task List */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            {/* Header with Add Task Button */}
+            <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">All Tasks</h3>
+                  <p className="text-sm text-gray-600">
+                    {pagination.total_items} tasks found
+                  </p>
+                </div>
+                
+                {/* Add Task Button */}
+                <button
+                  onClick={handleNewTaskClick}
+                  className="flex items-center space-x-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Task</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {allTasks.length === 0 ? (
+                <div className="text-center py-12">
+                  <Clock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Tasks Found</h3>
+                  <p className="text-gray-600">
+                    {searchTerm ? 'No tasks match your search criteria.' : 'No tasks in the system yet.'}
+                  </p>
+                  {searchTerm && (
+                    <p className="text-sm text-gray-500 mt-2">
+                      Try searching with "*" to see all tasks or adjust your search terms.
                     </p>
-                    {statusFilter !== 'all' && totalTaskCount > 0 && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        This user has {totalTaskCount} total tasks, but none match the current filter
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {tasks.map((task) => (
+                  )}
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {allTasks.map((task) => {
+                    // Find the task owner from users list
+                    const owner = users.find(user => user.id === task.owner_id) || 
+                                 users.find(user => user.id === task.user_id);
+                    
+                    return (
                       <div
                         key={task.id}
                         className={`p-4 rounded-xl border-2 transition-all ${
@@ -558,6 +513,19 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
                                 </span>
                               )}
                             </div>
+                            
+                            {/* Task owner info */}
+                            {owner && (
+                              <div className="flex items-center space-x-2 mb-2">
+                                <UserIcon className="w-4 h-4 text-gray-400" />
+                                <span className="text-sm text-gray-600">
+                                  Assigned to: <span className="font-medium">{owner.username}</span>
+                                  {owner.email && (
+                                    <span className="text-gray-500 ml-1">({owner.email})</span>
+                                  )}
+                                </span>
+                              </div>
+                            )}
                             
                             {task.description && (
                               <p className="text-gray-600 text-sm mb-2">{task.description}</p>
@@ -589,25 +557,101 @@ const AdminTaskManagement = memo(({ onBack }: AdminTaskManagementProps) => {
                           </div>
                         </div>
                       </div>
-                    ))}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Pagination Controls */}
+          {pagination.total_pages > 1 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  Page {pagination.current_page} of {pagination.total_pages}
+                </div>
+                
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={!pagination.has_previous}
+                    className="flex items-center space-x-2 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Previous</span>
+                  </button>
+                  
+                  {/* Page numbers */}
+                  <div className="flex space-x-1">
+                    {Array.from({ length: Math.min(5, pagination.total_pages) }, (_, i) => {
+                      let page;
+                      if (pagination.total_pages <= 5) {
+                        page = i + 1;
+                      } else if (currentPage <= 3) {
+                        page = i + 1;
+                      } else if (currentPage >= pagination.total_pages - 2) {
+                        page = pagination.total_pages - 4 + i;
+                      } else {
+                        page = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                            page === currentPage
+                              ? 'bg-indigo-600 text-white'
+                              : 'text-gray-700 hover:bg-gray-50 border border-gray-200'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      );
+                    })}
                   </div>
-                )}
+                  
+                  <button
+                    onClick={() => setCurrentPage(Math.min(pagination.total_pages, currentPage + 1))}
+                    disabled={!pagination.has_next}
+                    className="flex items-center space-x-2 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
-          ))}
+          )}
         </div>
       </main>
 
-      <TaskModal
-        isOpen={isTaskModalOpen}
+      <TaskEditModal
+        isOpen={isTaskEditModalOpen}
         onClose={() => {
-          setIsTaskModalOpen(false);
+          setIsTaskEditModalOpen(false);
           setEditingTask(null);
-          setAssigningUserId('');
         }}
         task={editingTask}
-        onSubmit={editingTask ? handleUpdateTask : handleCreateTask}
-        isAdmin={true}
+        onSubmit={handleUpdateTask}
+        users={users}
+      />
+
+      <StatusTasksModal
+        isOpen={isStatusModalOpen}
+        onClose={() => setIsStatusModalOpen(false)}
+        tasks={allTasks}
+        users={users}
+        statusType={statusModalType}
+        title={statusModalTitle}
+      />
+
+      <TaskCreationModal
+        isOpen={isTaskCreationModalOpen}
+        onClose={() => setIsTaskCreationModalOpen(false)}
+        onSubmit={handleCreateTask}
+        users={users}
       />
     </div>
   );
